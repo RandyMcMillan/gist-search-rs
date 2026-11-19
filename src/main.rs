@@ -65,6 +65,28 @@ enum Command {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GistFile {
+    filename: String,
+    #[serde(default)]
+    language: Option<String>,
+    raw_url: String,
+    size: u64,
+    #[serde(default)]
+    truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GistMeta {
+    id: String,
+    html_url: String,
+    description: Option<String>,
+    created_at: String,
+    updated_at: String,
+    public: bool,
+    files: BTreeMap<String, GistFile>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct Index {
     user: String,
@@ -206,6 +228,14 @@ fn load_index(user: &str) -> Result<Index> {
     Ok(serde_json::from_str(&data)?)
 }
 
+struct Hit {
+    gist_id: String,
+    gist_url: String,
+    description: String,
+    /// (file, line_no, line) — line_no 0 = metadata hit, 1-based for content.
+    matches: Vec<(String, usize, String)>,
+}
+
 fn info(user: &str) -> Result<()> {
     let index = load_index(user)?;
     let files: usize = index.gists.iter().map(|g| g.files.len()).sum();
@@ -235,6 +265,31 @@ fn search(user: &str, pattern: &str, content: bool, ignore_case: bool, limit: us
         .case_insensitive(ignore_case)
         .build()
         .with_context(|| format!("invalid regex: {pattern}"))?;
+
+    let mut hits: Vec<Hit> = Vec::new();
+
+    // 1) metadata pass: description + file names.
+    for gist in &index.gists {
+        let mut matches = Vec::new();
+        if let Some(desc) = &gist.description {
+            if re.is_match(desc) {
+                matches.push(("(description)".to_string(), 0, desc.clone()));
+            }
+        }
+        for (name, _) in &gist.files {
+            if re.is_match(name) {
+                matches.push((name.clone(), 0, name.clone()));
+            }
+        }
+        if !matches.is_empty() {
+            hits.push(Hit {
+                gist_id: gist.id.clone(),
+                gist_url: gist.html_url.clone(),
+                description: gist.description.clone().unwrap_or_default(),
+                matches,
+            });
+        }
+    }
 
     // 2) content pass: grep every file body.
     if content {
@@ -282,6 +337,7 @@ fn search(user: &str, pattern: &str, content: bool, ignore_case: bool, limit: us
                                     line: i + 1,
                                     text: line,
                                 });
+                                matches.push((file.filename.clone(), i + 1, line));
                             }
                         }
                         if !matches.is_empty() {
@@ -338,6 +394,11 @@ fn search(user: &str, pattern: &str, content: bool, ignore_case: bool, limit: us
                 println!("   [meta] {}: {}", m.file, m.text);
             } else {
                 println!("   {}:{}: {}", m.file, m.line, m.text);
+        for (file, line_no, line) in &hit.matches {
+            if *line_no == 0 {
+                println!("   [meta] {file}: {line}");
+            } else {
+                println!("   {file}:{line_no}: {line}");
             }
         }
         println!();
