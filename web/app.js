@@ -57,17 +57,33 @@ async function loadCached(user) {
   } catch { return false; }
 }
 
+// Render a live preview of the most recent chunk so the user sees
+// results immediately instead of waiting for the full sync.
+function renderSyncPreview(chunk, page) {
+  const MAX_ROWS = 8;
+  const parts = [];
+  parts.push(`<p class="sub">syncing ${state.user} — page ${page}: ${state.gists.length} gists so far (already searchable)</p>`);
+  for (const gist of chunk.slice(0, MAX_ROWS)) {
+    const desc = gist.description ? escapeHtml(gist.description.slice(0, 100)) : "(no description)";
+    parts.push(`<div class="hit"><a class="title" href="${gist.html_url}">${gist.html_url}</a><p class="desc">${desc}</p></div>`);
+  }
+  if (chunk.length > MAX_ROWS) parts.push(`<p class="sub">… and ${chunk.length - MAX_ROWS} more this page</p>`);
+  els.results.innerHTML = parts.join("");
+}
+
 async function sync() {
   const user = els.user.value.trim();
   if (!user) return;
   els.sync.disabled = true;
+  // Reset state up front so each chunk is searchable as it lands.
+  state.gists = [];
+  state.user = user;
+  let page = 1;
   try {
     const headers = { Accept: "application/vnd.github+json" };
     if (els.token.value.trim()) headers.Authorization = `Bearer ${els.token.value.trim()}`;
-    const gists = [];
-    let page = 1;
     for (;;) {
-      status(`syncing ${user}: page ${page} (${gists.length} gists)…`);
+      status(`syncing ${user}: page ${page} (${state.gists.length} gists)…`);
       const resp = await fetch(
         `https://api.github.com/users/${encodeURIComponent(user)}/gists?per_page=100&page=${page}`,
         { headers },
@@ -77,17 +93,17 @@ async function sync() {
       }
       if (!resp.ok) throw new Error(`GitHub API returned HTTP ${resp.status}`);
       const batch = await resp.json();
-      gists.push(...batch);
+      state.gists.push(...batch); // make this chunk searchable immediately
+      updateIndexInfo();
+      renderSyncPreview(batch, page);
       if (batch.length < 100) break;
       page += 1;
     }
-    state.gists = gists;
-    state.user = user;
     try {
-      localStorage.setItem(storeKey(user), JSON.stringify(gists));
-      status(`synced ${gists.length} gists for '${user}' (cached in localStorage)`);
+      localStorage.setItem(storeKey(user), JSON.stringify(state.gists));
+      status(`synced ${state.gists.length} gists for '${user}' (cached in localStorage)`);
     } catch {
-      status(`synced ${gists.length} gists for '${user}' (too big for localStorage; kept in memory only)`);
+      status(`synced ${state.gists.length} gists for '${user}' (too big for localStorage; kept in memory only)`);
     }
   } catch (e) {
     status(String(e.message || e), true);
