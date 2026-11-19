@@ -351,5 +351,4 @@ refreshRateMeter();
 if (await loadCached(els.user.value.trim())) {
   status(`loaded cached index for '${els.user.value.trim()}'`);
 }
-updateIndexIndexInfoGuard();
-function noop() {}
+updateIndexInfo();
