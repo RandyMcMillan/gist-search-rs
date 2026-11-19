@@ -24,9 +24,13 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      # Version must match the wasm-bindgen entry in Cargo.lock.
+      # Prebuilt binaries — no long `cargo install` compile on every run.
+      - name: Install cargo-binstall
+        run: curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+
+      # Version must match the wasm-bindgen entry in Cargo.toml.
       - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
+        run: cargo binstall -y wasm-bindgen-cli@0.2.130
 
       - name: Build WASM
         run: cargo build --release --lib --features wasm --target wasm32-unknown-unknown
