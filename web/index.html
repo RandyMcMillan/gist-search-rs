@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>gist-search — search every gist of a GitHub user</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 2rem 1rem;
+      font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: #0d1117; color: #c9d1d9;
+      max-width: 960px; margin-inline: auto;
+    }
+    h1 { font-size: 1.25rem; margin: 0 0 .25rem; }
+    h1 a { color: #58a6ff; text-decoration: none; }
+    .sub { color: #8b949e; margin-bottom: 1.25rem; }
+    fieldset {
+      border: 1px solid #30363d; border-radius: 8px;
+      padding: .75rem 1rem; margin: 0 0 1rem;
+      display: flex; flex-wrap: wrap; gap: .5rem; align-items: center;
+    }
+    legend { padding: 0 .5rem; color: #8b949e; }
+    input[type=text], input[type=password] {
+      background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+      color: #c9d1d9; padding: .4rem .6rem; font: inherit; min-width: 12rem;
+    }
+    input[type=text]:focus, input[type=password]:focus { outline: 1px solid #58a6ff; }
+    button {
+      background: #238636; border: none; border-radius: 6px; color: #fff;
+      padding: .45rem .9rem; font: inherit; cursor: pointer;
+    }
+    button:hover { background: #2ea043; }
+    button:disabled { background: #30363d; color: #8b949e; cursor: default; }
+    label { display: inline-flex; gap: .3rem; align-items: center; white-space: nowrap; }
+    #status { color: #8b949e; margin: .5rem 0; white-space: pre-wrap; }
+    #results .hit {
+      border: 1px solid #30363d; border-radius: 8px;
+      padding: .6rem .8rem; margin-bottom: .6rem;
+    }
+    #results .hit a { color: #58a6ff; word-break: break-all; }
+    #results .desc { color: #8b949e; margin: .2rem 0; }
+    #results .match { margin: 0; white-space: pre-wrap; word-break: break-all; }
+    #results .lineno { color: #8b949e; }
+    .meta { color: #d29922; }
+    .error { color: #f85149; }
+  </style>
+</head>
+<body>
+  <h1><a href="https://github.com/RandyMcMillan/gist-search-rs">gist-search</a></h1>
+  <p class="sub">
+    Search every gist created by a GitHub user (default:
+    <a href="https://gist.github.com/rust-play" style="color:#58a6ff">rust-play</a>).
+    Metadata search runs in Rust-compiled WASM; content search runs in your browser.
+  </p>
+
+  <fieldset>
+    <legend>index</legend>
+    <input type="text" id="user" value="rust-play" placeholder="github user" />
+    <input type="password" id="token" placeholder="token (optional, raises rate limit)" size="34" />
+    <button id="sync">Sync</button>
+    <span id="indexinfo"></span>
+  </fieldset>
+
+  <fieldset>
+    <legend>search</legend>
+    <input type="text" id="pattern" placeholder="regex, e.g. unsafe|unwrap" style="flex:1" />
+    <label><input type="checkbox" id="ignorecase" /> -i</label>
+    <label><input type="checkbox" id="content" /> --content</label>
+    <button id="search" disabled>Search</button>
+  </fieldset>
+
+  <div id="status"></div>
+  <div id="results"></div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
