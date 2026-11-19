@@ -9,10 +9,12 @@ const els = {
   ratelimit: $("ratelimit"),
 };
 
-// ---- theme: system / light / dark ----
+// ---- theme: system / light / dark (Primer data-color-mode) ----
 const THEME_KEY = "gist-search:theme";
 function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme;
+  // Primer: data-color-mode="auto" follows prefers-color-scheme;
+  // data-light-theme/data-dark-theme select which palette "auto" resolves to.
+  document.documentElement.setAttribute("data-color-mode", theme === "system" ? "auto" : theme);
   for (const t of ["system", "light", "dark"]) {
     $(`theme-${t}`).setAttribute("aria-pressed", String(t === theme));
   }
@@ -32,7 +34,7 @@ const starred = new Set(); // gist ids the user has starred this session
 
 function status(msg, isError = false) {
   els.status.textContent = msg;
-  els.status.className = isError ? "error" : "";
+  els.status.className = `f6 mb-2 ${isError ? "color-fg-danger" : "color-fg-muted"}`;
 }
 
 function storeKey(user) { return `gist-search:index:${user}`; }
@@ -142,12 +144,12 @@ els.results.addEventListener("click", (e) => {
 function renderSyncPreview(chunk, page, incremental) {
   const MAX_ROWS = 8;
   const parts = [];
-  parts.push(`<p class="sub">${incremental ? "updating" : "syncing"} ${state.user} — page ${page}: ${state.gists.length} gists indexed so far (already searchable)</p>`);
+  parts.push(`<p class="f6 color-fg-muted">${incremental ? "updating" : "syncing"} ${state.user} — page ${page}: ${state.gists.length} gists indexed so far (already searchable)</p>`);
   for (const gist of chunk.slice(0, MAX_ROWS)) {
     const desc = gist.description ? escapeHtml(gist.description.slice(0, 100)) : "(no description)";
-    parts.push(`<div class="hit">${starButton(gist.id)} <a class="title" href="${gist.html_url}">${gist.html_url}</a><p class="desc">${desc}</p></div>`);
+    parts.push(`<div class="Box p-3 mb-3">${starButton(gist.id)} <a class="text-bold" href="${gist.html_url}">${gist.html_url}</a><p class="f6 color-fg-muted mt-1 mb-0">${desc}</p></div>`);
   }
-  if (chunk.length > MAX_ROWS) parts.push(`<p class="sub">… and ${chunk.length - MAX_ROWS} more this page</p>`);
+  if (chunk.length > MAX_ROWS) parts.push(`<p class="f6 color-fg-muted">… and ${chunk.length - MAX_ROWS} more this page</p>`);
   els.results.innerHTML = parts.join("");
 }
 
@@ -213,19 +215,19 @@ async function sync() {
 
 function renderHits(hits, limit = 200) {
   const parts = [];
-  parts.push(`<p class="sub">${hits.length} gist(s) matched</p>`);
+  parts.push(`<p class="f6 color-fg-muted">${hits.length} gist(s) matched</p>`);
   for (const hit of hits.slice(0, limit)) {
-    parts.push(`<div class="hit">${starButton(hit.gist_id)} <a href="${hit.gist_url}">${hit.gist_url}</a>`);
-    if (hit.description) parts.push(`<p class="desc">${escapeHtml(hit.description)}</p>`);
+    parts.push(`<div class="Box p-3 mb-3">${starButton(hit.gist_id)} <a href="${hit.gist_url}">${hit.gist_url}</a>`);
+    if (hit.description) parts.push(`<p class="f6 color-fg-muted mt-1 mb-2">${escapeHtml(hit.description)}</p>`);
     for (const m of hit.matches) {
       const where = m.line === 0
-        ? `<span class="meta">[meta] ${escapeHtml(m.file)}</span>`
-        : `<span class="lineno">${escapeHtml(m.file)}:${m.line}:</span>`;
-      parts.push(`<p class="match">${where} ${escapeHtml(m.text)}</p>`);
+        ? `<span class="color-fg-attention">[meta] ${escapeHtml(m.file)}</span>`
+        : `<span class="color-fg-muted">${escapeHtml(m.file)}:${m.line}:</span>`;
+      parts.push(`<p class="mono f6 m-0" style="white-space:pre-wrap;word-break:break-all">${where} ${escapeHtml(m.text)}</p>`);
     }
     parts.push("</div>");
   }
-  if (hits.length > limit) parts.push(`<p class="sub">… and ${hits.length - limit} more</p>`);
+  if (hits.length > limit) parts.push(`<p class="f6 color-fg-muted">… and ${hits.length - limit} more</p>`);
   els.results.innerHTML = parts.join("");
 }
 
@@ -349,4 +351,5 @@ refreshRateMeter();
 if (await loadCached(els.user.value.trim())) {
   status(`loaded cached index for '${els.user.value.trim()}'`);
 }
-updateIndexInfo();
+updateIndexIndexInfoGuard();
+function noop() {}
