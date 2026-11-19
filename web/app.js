@@ -8,6 +8,24 @@ const els = {
   search: $("search"), status: $("status"), results: $("results"),
 };
 
+// ---- theme: system / light / dark ----
+const THEME_KEY = "gist-search:theme";
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  for (const t of ["system", "light", "dark"]) {
+    $(`theme-${t}`).setAttribute("aria-pressed", String(t === theme));
+  }
+  try { localStorage.setItem(THEME_KEY, theme); } catch {}
+}
+for (const t of ["system", "light", "dark"]) {
+  $(`theme-${t}`).addEventListener("click", () => applyTheme(t));
+}
+{
+  let theme = "system";
+  try { theme = localStorage.getItem(THEME_KEY) || "system"; } catch {}
+  applyTheme(theme);
+}
+
 const state = { gists: [], user: null };
 
 function status(msg, isError = false) {
@@ -111,13 +129,36 @@ function mergeHits(hits) {
   return [...byId.values()].sort((a, b) => b.gist_id.localeCompare(a.gist_id));
 }
 
+// Mirror of the Rust parse_query: `user:` / `language:` qualifiers, rest is pattern.
+function parseQualifiers(query) {
+  const users = [], languages = [];
+  const rest = [];
+  for (const tok of query.split(/\s+/)) {
+    if (tok.startsWith("user:") && tok.length > 5) users.push(tok.slice(5).toLowerCase());
+    else if (tok.startsWith("language:") && tok.length > 9) languages.push(tok.slice(9).toLowerCase());
+    else rest.push(tok);
+  }
+  return { users, languages, pattern: rest.join(" ") };
+}
+
 // Content search: fetch raw files (concurrency pool of 8) and grep in JS.
 // JS RegExp syntax differs slightly from Rust's regex crate; that's acceptable here.
-async function contentSearch(pattern, ignoreCase) {
-  const re = new RegExp(pattern, ignoreCase ? "i" : "");
+async function contentSearch(query, ignoreCase) {
+  const { users, languages, pattern } = parseQualifiers(query);
+  const re = new RegExp(pattern || ".*", ignoreCase ? "i" : "");
   const work = [];
   for (const gist of state.gists) {
-    for (const file of Object.values(gist.files || {})) work.push([gist, file]);
+    if (users.length) {
+      const owner = (gist.owner?.login || gist.owner || "").toLowerCase();
+      if (!users.includes(owner)) continue;
+    }
+    for (const file of Object.values(gist.files || {})) {
+      if (languages.length) {
+        const lang = (file.language || "").toLowerCase();
+        if (!languages.includes(lang)) continue;
+      }
+      work.push([gist, file]);
+    }
   }
   const hits = [];
   let done = 0, next = 0;
