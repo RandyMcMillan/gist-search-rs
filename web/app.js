@@ -6,6 +6,7 @@ const els = {
   indexinfo: $("indexinfo"), pattern: $("pattern"),
   ignorecase: $("ignorecase"), content: $("content"),
   search: $("search"), status: $("status"), results: $("results"),
+  ratelimit: $("ratelimit"),
 };
 
 // ---- theme: system / light / dark ----
@@ -27,6 +28,7 @@ for (const t of ["system", "light", "dark"]) {
 }
 
 const state = { gists: [], user: null };
+const starred = new Set(); // gist ids the user has starred this session
 
 function status(msg, isError = false) {
   els.status.textContent = msg;
@@ -34,6 +36,31 @@ function status(msg, isError = false) {
 }
 
 function storeKey(user) { return `gist-search:index:${user}`; }
+function sinceKey(user) { return `gist-search:since:${user}`; }
+
+// ---- rate-limit meter ----
+function updateRateMeter(headers) {
+  const remaining = headers.get("x-ratelimit-remaining");
+  const limit = headers.get("x-ratelimit-limit");
+  const reset = headers.get("x-ratelimit-reset");
+  if (remaining == null || limit == null) return;
+  let resetTxt = "";
+  if (reset) resetTxt = ` · resets ${new Date(Number(reset) * 1000).toLocaleTimeString()}`;
+  els.ratelimit.textContent = `API ${remaining}/${limit}${resetTxt}`;
+}
+
+async function refreshRateMeter() {
+  try {
+    const headers = { Accept: "application/vnd.github+json" };
+    if (els.token.value.trim()) headers.Authorization = `Bearer ${els.token.value.trim()}`;
+    const resp = await fetch("https://api.github.com/rate_limit", { headers });
+    const data = await resp.json();
+    const core = data.resources && data.resources.core;
+    if (core) {
+      els.ratelimit.textContent = `API ${core.remaining}/${core.limit} · resets ${new Date(core.reset * 1000).toLocaleTimeString()}`;
+    }
+  } catch { /* leave the meter blank */ }
+}
 
 function updateIndexInfo() {
   if (!state.gists.length) {
@@ -57,53 +84,124 @@ async function loadCached(user) {
   } catch { return false; }
 }
 
+function escapeHtml(s) {
+  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+// ---- gist star toggle ----
+function starButton(gistId) {
+  const on = starred.has(gistId);
+  return `<button class="star${on ? " starred" : ""}" data-star="${gistId}" title="${on ? "Unstar" : "Star"} this gist (needs a token with gist scope)">${on ? "★" : "☆"}</button>`;
+}
+
+function paintStars() {
+  for (const btn of els.results.querySelectorAll("button.star")) {
+    const on = starred.has(btn.dataset.star);
+    btn.classList.toggle("starred", on);
+    btn.textContent = on ? "★" : "☆";
+  }
+}
+
+async function toggleStar(gistId, btn) {
+  const token = els.token.value.trim();
+  if (!token) {
+    status("starring needs a token with the gist scope — paste one in the token field", true);
+    return;
+  }
+  const want = !starred.has(gistId);
+  btn.disabled = true;
+  try {
+    const headers = { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}` };
+    const resp = await fetch(`https://api.github.com/gists/${gistId}/star`, {
+      method: want ? "PUT" : "DELETE",
+      headers,
+    });
+    updateRateMeter(resp.headers);
+    if (resp.status === 204 || resp.status === 304) {
+      if (want) starred.add(gistId); else starred.delete(gistId);
+      paintStars();
+      status(want ? `starred ${gistId}` : `unstarred ${gistId}`);
+    } else {
+      throw new Error(`HTTP ${resp.status}`);
+    }
+  } catch (e) {
+    status(`star failed: ${e.message || e}`, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// One delegated handler covers hits rendered at any time.
+els.results.addEventListener("click", (e) => {
+  const btn = e.target.closest("button.star");
+  if (btn) toggleStar(btn.dataset.star, btn);
+});
+
 // Render a live preview of the most recent chunk so the user sees
 // results immediately instead of waiting for the full sync.
-function renderSyncPreview(chunk, page) {
+function renderSyncPreview(chunk, page, incremental) {
   const MAX_ROWS = 8;
   const parts = [];
-  parts.push(`<p class="sub">syncing ${state.user} — page ${page}: ${state.gists.length} gists so far (already searchable)</p>`);
+  parts.push(`<p class="sub">${incremental ? "updating" : "syncing"} ${state.user} — page ${page}: ${state.gists.length} gists indexed so far (already searchable)</p>`);
   for (const gist of chunk.slice(0, MAX_ROWS)) {
     const desc = gist.description ? escapeHtml(gist.description.slice(0, 100)) : "(no description)";
-    parts.push(`<div class="hit"><a class="title" href="${gist.html_url}">${gist.html_url}</a><p class="desc">${desc}</p></div>`);
+    parts.push(`<div class="hit">${starButton(gist.id)} <a class="title" href="${gist.html_url}">${gist.html_url}</a><p class="desc">${desc}</p></div>`);
   }
   if (chunk.length > MAX_ROWS) parts.push(`<p class="sub">… and ${chunk.length - MAX_ROWS} more this page</p>`);
   els.results.innerHTML = parts.join("");
+}
+
+// Merge a fetched batch into the current index by gist id (updates win).
+function mergeBatch(batch) {
+  if (!batch.length) return;
+  const byId = new Map(state.gists.map((g) => [g.id, g]));
+  for (const g of batch) byId.set(g.id, g);
+  state.gists = [...byId.values()];
 }
 
 async function sync() {
   const user = els.user.value.trim();
   if (!user) return;
   els.sync.disabled = true;
-  // Reset state up front so each chunk is searchable as it lands.
-  state.gists = [];
   state.user = user;
+  // Start from the cached index if present — re-syncs are then incremental:
+  // the `since` watermark (max updated_at from the last sync) means GitHub
+  // only returns gists created/updated since then.
+  const hadCache = await loadCached(user);
+  if (!hadCache) state.gists = [];
+  let since = null;
+  try { since = localStorage.getItem(sinceKey(user)); } catch {}
+  const incremental = Boolean(hadCache && since);
   let page = 1;
   try {
     const headers = { Accept: "application/vnd.github+json" };
     if (els.token.value.trim()) headers.Authorization = `Bearer ${els.token.value.trim()}`;
     for (;;) {
-      status(`syncing ${user}: page ${page} (${state.gists.length} gists)…`);
-      const resp = await fetch(
-        `https://api.github.com/users/${encodeURIComponent(user)}/gists?per_page=100&page=${page}`,
-        { headers },
-      );
+      status(`${incremental ? "updating" : "syncing"} ${user}: page ${page} (${state.gists.length} gists)…`);
+      let url = `https://api.github.com/users/${encodeURIComponent(user)}/gists?per_page=100&page=${page}`;
+      if (incremental) url += `&since=${encodeURIComponent(since)}`;
+      const resp = await fetch(url, { headers });
+      updateRateMeter(resp.headers);
       if (resp.status === 403 || resp.status === 429) {
         throw new Error(`GitHub rate limit hit (use a token, or wait for the hourly reset)`);
       }
       if (!resp.ok) throw new Error(`GitHub API returned HTTP ${resp.status}`);
       const batch = await resp.json();
-      state.gists.push(...batch); // make this chunk searchable immediately
+      mergeBatch(batch); // each chunk is searchable the moment it lands
       updateIndexInfo();
-      renderSyncPreview(batch, page);
+      renderSyncPreview(batch, page, incremental);
       if (batch.length < 100) break;
       page += 1;
     }
+    // Persist the new watermark = newest updated_at across the whole index.
+    let newest = "";
+    for (const g of state.gists) if (g.updated_at > newest) newest = g.updated_at;
+    try { if (newest) localStorage.setItem(sinceKey(user), newest); } catch {}
     try {
       localStorage.setItem(storeKey(user), JSON.stringify(state.gists));
-      status(`synced ${state.gists.length} gists for '${user}' (cached in localStorage)`);
+      status(`${incremental ? "updated" : "synced"} ${state.gists.length} gists for '${user}' (cached in localStorage)`);
     } catch {
-      status(`synced ${state.gists.length} gists for '${user}' (too big for localStorage; kept in memory only)`);
+      status(`${incremental ? "updated" : "synced"} ${state.gists.length} gists for '${user}' (too big for localStorage; kept in memory only)`);
     }
   } catch (e) {
     status(String(e.message || e), true);
@@ -113,15 +211,11 @@ async function sync() {
   }
 }
 
-function escapeHtml(s) {
-  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-}
-
 function renderHits(hits, limit = 200) {
   const parts = [];
   parts.push(`<p class="sub">${hits.length} gist(s) matched</p>`);
   for (const hit of hits.slice(0, limit)) {
-    parts.push(`<div class="hit"><a href="${hit.gist_url}">${hit.gist_url}</a>`);
+    parts.push(`<div class="hit">${starButton(hit.gist_id)} <a href="${hit.gist_url}">${hit.gist_url}</a>`);
     if (hit.description) parts.push(`<p class="desc">${escapeHtml(hit.description)}</p>`);
     for (const m of hit.matches) {
       const where = m.line === 0
@@ -248,8 +342,10 @@ els.user.addEventListener("change", async () => {
   if (user && await loadCached(user)) status(`loaded cached index for '${user}'`);
   updateIndexInfo();
 });
+els.token.addEventListener("change", refreshRateMeter);
 
 await init();
+refreshRateMeter();
 if (await loadCached(els.user.value.trim())) {
   status(`loaded cached index for '${els.user.value.trim()}'`);
 }

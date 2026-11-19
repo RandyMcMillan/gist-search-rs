@@ -146,16 +146,31 @@
     }
     #results .lineno { color: var(--fg-muted); }
     #results .meta { color: var(--meta); }
+
+    /* gist star toggle */
+    button.star {
+      background: none; border: none; cursor: pointer;
+      font-size: 14px; line-height: 1; padding: 0 .25rem;
+      color: var(--fg-muted);
+    }
+    button.star:hover { color: var(--meta); }
+    button.star.starred { color: var(--meta); }
+
+    /* rate-limit meter */
+    #ratelimit { font-size: 12px; margin: 0; white-space: nowrap; }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
       <h1><a href="https://github.com/RandyMcMillan/gist-search-rs">gist-search</a></h1>
-      <div class="segmented" role="group" aria-label="Theme">
-        <button id="theme-system" aria-pressed="true">System</button>
-        <button id="theme-light" aria-pressed="false">Light</button>
-        <button id="theme-dark" aria-pressed="false">Dark</button>
+      <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+        <span id="ratelimit" class="sub"></span>
+        <div class="segmented" role="group" aria-label="Theme">
+          <button id="theme-system" aria-pressed="true">System</button>
+          <button id="theme-light" aria-pressed="false">Light</button>
+          <button id="theme-dark" aria-pressed="false">Dark</button>
+        </div>
       </div>
     </header>
 
@@ -165,6 +180,8 @@
       Metadata search runs in Rust-compiled WASM; content search runs in your browser.
       Use GitHub-style qualifiers: <code>user:</code>, <code>language:</code>
       — e.g. <code>user:rust-play language:rust fn main</code>.
+      Re-syncs are incremental (only gists updated since the last sync are fetched).
+      Star a gist with the <code>☆</code> button (needs a token with the <code>gist</code> scope).
     </p>
 
     <fieldset>
