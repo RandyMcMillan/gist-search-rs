@@ -143,17 +143,22 @@ els.results.addEventListener("click", (e) => {
   if (e.target.closest("[data-browse]")) renderBrowser(BROWSER.page);
 });
 
-// Render a live preview of the most recent chunk so the user sees
-// results immediately instead of waiting for the full sync.
+// Render a live preview of all chunks so far — rows accumulate across
+// pages so nothing already shown gets clobbered by the next page.
+const PREVIEW_CAP = 100; // DOM size guard; full list lives in the paginator
+let previewRows = [];
+
 function renderSyncPreview(chunk, page, incremental) {
-  const MAX_ROWS = 8;
+  previewRows.push(...chunk);
   const parts = [];
   parts.push(`<p class="f6 color-fg-muted">${incremental ? "updating" : "syncing"} ${state.user} — page ${page}: ${state.gists.length} gists indexed so far (already searchable)</p>`);
-  for (const gist of chunk.slice(0, MAX_ROWS)) {
+  for (const gist of previewRows.slice(0, PREVIEW_CAP)) {
     const desc = gist.description ? escapeHtml(gist.description.slice(0, 100)) : "(no description)";
     parts.push(`<div class="Box p-3 mb-3">${starButton(gist.id)} <a class="text-bold" href="${gist.html_url}">${gist.html_url}</a><p class="f6 color-fg-muted mt-1 mb-0">${desc}</p></div>`);
   }
-  if (chunk.length > MAX_ROWS) {
+  if (previewRows.length > PREVIEW_CAP) {
+    parts.push(`<p class="f6 color-fg-muted">showing first ${PREVIEW_CAP} of ${previewRows.length} fetched · <a href="#" data-browse>browse all ${state.gists.length} gists →</a></p>`);
+  } else if (previewRows.length > 8) {
     parts.push(`<p class="f6 color-fg-muted"><a href="#" data-browse>browse all ${state.gists.length} gists →</a></p>`);
   }
   els.results.innerHTML = parts.join("");
@@ -218,6 +223,7 @@ async function sync() {
   if (!user) return;
   els.sync.disabled = true;
   state.user = user;
+  previewRows = []; // fresh preview accumulation per sync
   // Start from the cached index if present — re-syncs are then incremental:
   // the `since` watermark (max updated_at from the last sync) means GitHub
   // only returns gists created/updated since then.
