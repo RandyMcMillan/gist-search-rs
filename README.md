@@ -34,6 +34,10 @@ gist-search search -i "lazy"
 # also grep inside every file body
 gist-search search "unsafe" --content
 
+# GitHub-style qualifiers (CLI and web)
+gist-search search "language:rust tokio"
+gist-search search 'user:rust-play language:rust "fn main"' --content
+
 # other users
 gist-search sync --user torvalds
 gist-search search "kernel" --user torvalds --content
@@ -44,6 +48,10 @@ gist-search search "kernel" --user torvalds --content
 - The `rust-play` account has thousands of gists, so a full content search
   downloads many files; only matched lines are printed (truncated at 300 chars).
 - Pattern syntax is Rust `regex` crate syntax.
+- Query qualifiers, GitHub-style: `user:login`, `language:rust` filter by
+  owner and file language; everything else is the regex. A qualifier-only
+  query (e.g. `language:rust`) lists matching files. With `language:` set,
+  description matches are skipped (mirrors GitHub code search).
 
 ## Web app (WASM)
 
